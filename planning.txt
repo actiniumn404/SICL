@@ -1,0 +1,13 @@
+# Extention: sicl
+# Comments using hashtag
+
+# + calls the preprosessor
++include std
++include random
++replace x xx
+
+*AUL !p test
+*std print("test")
+* print("test")
+
+*std print: (lambda: x), $var, "string",
