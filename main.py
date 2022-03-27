@@ -1,11 +1,21 @@
 from termcolor import colored, cprint
+from inspect import signature
+
 import sys
 import importlib
 import pathlib
 
+class Variable():
+    def __init__(self, type, data, name):
+        self.type = type
+        self.data = data
+        self.name = name
+
 class SICL():
     def __init__(self, code: str) -> None:
         self.code = code
+        self.vars = {}
+        self.line = 1
         self.functions = {
             "program": {}
         }
@@ -76,23 +86,50 @@ class SICL():
         return result
 
     def convert(self, arg):
+        arg = arg[1:-1]
         if all([x in list("0123456789") for x in arg]):
             return int(arg)
         if all([x in list("0123456789.") for x in arg]):
             return float(arg)
+        if arg[0] == "$": # variable
+            if arg[1:] not in self.vars:
+                self.error("NameError", f'There is no variable named "{arg[1:]}"', self.line)
+            return self.vars[arg[1:]].content
+        if arg[0] == '"' and arg[-1] == '"':
+            return arg[1:-1]
+
+
 
 
     def main(self):
         for index, line in enumerate(self.code.splitlines()):
-            args = self.get_args(line)
+            try:
+                args = self.get_args(line)
+            except IndexError:
+                self.error("EOL", f"End of line (EOL) when scanning function call", index + 1)
+
             if args["type"] == "!":
                 if args["syntax"] not in self.functions:
                     self.error("NameError", f"No module "+args["syntax"]+" was found.", index+1)
                 elif args["name"] not in self.functions[args["syntax"]]:
                     self.error("NameError", f"No function called "+args["syntax"]+"."+args["name"]+" was found.", index+1)
                 else:
+                    func = self.functions[args["syntax"]][args["name"]]
+                    sig = [str(x) for x in list(dict(signature(func).parameters).values())]
+                    len_sig = len(sig)
+                    if len(args["args"]) != len_sig and "*args" not in sig:
+                        self.error("TypeError",
+                                   f"Expected: "+str(len_sig)+" parameters, got "+str(len(args["args"])),
+                                   index + 1)
+
+                    if len(args["args"]) < len_sig - 1 and "*args" in sig:
+                        self.error("TypeError",
+                                   f"Expected: <= "+str(len_sig)+" parameters, got "+str(len(args["args"])),
+                                   index + 1)
+
                     args["args"] = list(map(self.convert, args["args"]))
-                    self.functions[args["syntax"]][args["name"]](*args["args"]) # Python is so cool
+                    func(*args["args"]) # Python is so cool
+            self.line += 1
 
 
 if __name__ == "__main__":

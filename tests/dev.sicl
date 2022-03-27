@@ -1,2 +1,2 @@
 +include std
-!std pront: ("what"),
+!std print: (3,2
