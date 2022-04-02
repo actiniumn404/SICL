@@ -4,42 +4,51 @@ from inspect import signature
 import sys
 import importlib
 import pathlib
+import re
+
 
 class Variable():
-    def __init__(self, type, data, name):
+    def __init__(self, name: str, type: str, flags: list):
         self.type = type
-        self.data = data
         self.name = name
+        self.flags = flags
+        self.data = None
+
+    def define(self, content, line: int = -1):
+        print(self.name, content)
+        if "const" in self.flags:
+            return SICL().error("AssignmentError", "cannot redefine a constant variable", line) and False
+        self.data = content
+
 
 class SICL():
-    def __init__(self, code: str) -> None:
+    def __init__(self, code = None) -> None:
         self.code = code
         self.vars = {}
         self.line = 1
+        self.data_types = ("string", "int", "bool", "float")
         self.functions = {
             "program": {}
         }
-        self.preprocess()
-        self.main()
+        if code:
+            self.preprocess()
+            self.main()
 
     def preprocess(self):
         output = ""
         replacement = {}
         for index, line in enumerate(self.code.splitlines()):
             line = line.strip().lower()
-            if line and line[0] != "+":
-                output += line.strip() + "\n"
-
-            else:  # All preprocessor commands start with "+"
-                param = line[1:].split(" ", maxsplit=2)
-                if param[0] == "include":
-                    try:
-                        self.functions[param[1]] = {}
-                        importlib.import_module(f"modules.{param[1]}.main").setup(self.functions[param[1]])
-                    except FileNotFoundError:
-                        self.error("FileNotFound", f"No such file \"{param[1]}\" was found", index + 1, action="preprocessing this program")
-                elif param[0] == "replace":
-                    replacement[param[1]] = param[2]
+            output += line.strip() + "\n"
+            param = line[1:].split(" ", maxsplit=2)
+            if param[0] == "include":
+                try:
+                    self.functions[param[1]] = {}
+                    importlib.import_module(f"modules.{param[1]}.main").setup(self.functions[param[1]])
+                except FileNotFoundError:
+                    self.error("FileNotFound", f"No such file \"{param[1]}\" was found", index + 1, action="preprocessing this program")
+            elif param[0] == "replace":
+                replacement[param[1]] = param[2]
         for before in replacement:
             output = output.replace(before, replacement[before])
         self.code = output
@@ -73,7 +82,7 @@ class SICL():
         while i < len(line):
             arg = ""
             num_parth = 0
-            while ((line[i] != "," or num_parth) and line[i] != "\n"):
+            while (line[i] != "," or num_parth) and line[i] != "\n":
                 arg += line[i]
                 if line[i] == "(":
                     num_parth += 1
@@ -98,17 +107,17 @@ class SICL():
         if arg[0] == '"' and arg[-1] == '"':
             return arg[1:-1]
 
-
-
-
     def main(self):
         for index, line in enumerate(self.code.splitlines()):
-            try:
-                args = self.get_args(line)
-            except IndexError:
-                self.error("EOL", f"End of line (EOL) when scanning function call", index + 1)
-
-            if args["type"] == "!":
+            if not line:
+                pass
+            elif line[0] == "+":
+                pass
+            elif line[0] == "!":
+                try:
+                    args = self.get_args(line)
+                except IndexError:
+                    self.error("EOL", f"End of line (EOL) when scanning function call", index + 1)
                 if args["syntax"] not in self.functions:
                     self.error("NameError", f"No module "+args["syntax"]+" was found.", index+1)
                 elif args["name"] not in self.functions[args["syntax"]]:
@@ -129,6 +138,18 @@ class SICL():
 
                     args["args"] = list(map(self.convert, args["args"]))
                     func(*args["args"]) # Python is so cool
+            elif line[0] == "$":
+                outline = re.match("\$([a-zA-Z_]+)\s{1,}([a-zA-Z]+)\[(.*)]\s{1,}=\s{1,}(.*)", line)
+                if not outline:
+                    self.error("SyntaxError", "Syntax used here does not adhere to the variable assignment syntax", self.line + 1)
+                else:
+                    # Outline: variable_name, data_type, additional_info, content
+                    outline = outline.groups()
+                    if outline[0] not in self.vars:
+                        self.vars[outline[0]] = Variable(outline[0], outline[1], outline[2].split("/"))
+                    self.vars[outline[0]].define(outline[3], self.line + 1)
+
+
             self.line += 1
 
 

@@ -1,2 +1,4 @@
 +include std
-!std print: (3,2
+$andrew string[] = "asdf"
+$andrew string[const] = "cool"
+!std print: (3), (2),
