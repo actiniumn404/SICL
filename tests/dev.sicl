@@ -1,6 +1,10 @@
 +include std
 
-?if $firstcond | "cool" ~ 1 ~ 1 ~ 1
-    !std print: ("IN the if!"),
-?back $firstcond
+?if $firstcond | "cool"
+    !std print: ("IN the if!"), ("cool!"), ("noice"),
+?end $firstcond
+?if $secondcond | $__previf__ = False
+    !std print: ("IN the ELSE one!"),
+?end $secondcond
+
 !std print: ("OUT OF the if!"),

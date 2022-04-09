@@ -52,7 +52,7 @@ class SICL():
         output = ""
         replacement = {}
         for index, line in enumerate(self.code.splitlines()):
-            line = line.strip().lower()
+            line = line.strip()
             output += line.strip() + "\n"
             param = line[1:].split(" ", maxsplit=2)
             if param[0] == "include":
@@ -104,47 +104,42 @@ class SICL():
                 queue.insert(0, op1 > op2)
             else:
                 self.error("SyntaxError", "Invalid logical operator \""+op+"\"", self.line)
+            #print(boolstr, queue, op1, op2)
         return bool(self.convert(queue[0]))
 
-    def get_args(self, line):
-        """
-        Expected Symtax:
-        !std (arg1), (arg2), (arg3),
-        """
-        result = {}
-        result["type"] = line[0]
-        result["args"] = []
-        i = 1
-        syntax = ""
-        while line[i - 1] != " " and line[i - 1] != "\n":
-            syntax += line[i]
-            i += 1
-        if not syntax.strip():
-            syntax = "program"
-        result["syntax"] = syntax.strip()
-        name = ""
-        while line[i] != ":" and line[i] != "\n":
-            name += line[i]
-            i += 1
-        i += 2
-        result["name"] = name
-        while i < len(line):
-            arg = ""
-            num_parth = 0
-            while (line[i] != "," or num_parth) and line[i] != "\n":
-                arg += line[i]
-                if line[i] == "(":
-                    num_parth += 1
-                elif line[i] == ")":
-                    num_parth -= 1
-                i += 1
-            result["args"].append(arg)
-            while i < len(line) and line[i - 1] != " " and line[i - 1] != "\n":
-                i += 1
-        return result
+    def eval_func(self, line):
+        outline = re.match("!([a-zA-Z_0-9]+) ([a-zA-Z_]+): (\(.*\),){1,}", line)
+        if not outline:
+            self.error("EOL", f"End of line (EOL) when scanning function call", self.line + 1)
+        library, name, args = outline.groups()
+        args = args.split(", ")
+
+        if library not in self.functions:
+            self.error("NameError", f"No module " + library + " was found.", self.line + 1)
+        elif name not in self.functions[library]:
+            self.error("NameError",
+                       f"No function called " + library + "." + name + " was found.",
+                       self.line + 1)
+        else:
+            func = self.functions[library][name]
+            sig = [str(x) for x in list(dict(signature(func).parameters).values())]
+            len_sig = len(sig)
+            if len(args) != len_sig and "*args" not in sig:
+                self.error("TypeError",
+                           f"Expected: " + str(len_sig) + " parameters, got " + str(len(args)),
+                           self.line + 1)
+
+            if len(args) < len_sig - 1 and "*args" in sig:
+                self.error("TypeError",
+                           f"Expected: <= " + str(len_sig) + " parameters, got " + str(len(args)),
+                           self.line + 1)
+
+            args = list(map(self.convert, args))
+            return func(*args)  # Python is so cool
+
 
     def convert(self, arg):
-        arg = str(arg).strip("()")
+        arg = str(arg).strip("(),")
         if arg == "True":
             return True
         if arg == "False":
@@ -159,6 +154,8 @@ class SICL():
             return self.vars[arg[1:]].data
         if arg[0] == '"' and arg[-1] == '"':
             return arg[1:-1]
+        if arg[0] == "!":
+            return self.eval_func(arg)
         return arg
 
     def main(self):
@@ -169,32 +166,8 @@ class SICL():
             elif line[0] in ["+", "#"]:
                 pass
             elif line[0] == "!":
-                try:
-                    args = self.get_args(line)
-                except IndexError:
-                    self.error("EOL", f"End of line (EOL) when scanning function call", self.line + 1)
-                if args["syntax"] not in self.functions:
-                    self.error("NameError", f"No module " + args["syntax"] + " was found.", self.line + 1)
-                elif args["name"] not in self.functions[args["syntax"]]:
-                    self.error("NameError",
-                               f"No function called " + args["syntax"] + "." + args["name"] + " was found.",
-                               self.line + 1)
-                else:
-                    func = self.functions[args["syntax"]][args["name"]]
-                    sig = [str(x) for x in list(dict(signature(func).parameters).values())]
-                    len_sig = len(sig)
-                    if len(args["args"]) != len_sig and "*args" not in sig:
-                        self.error("TypeError",
-                                   f"Expected: " + str(len_sig) + " parameters, got " + str(len(args["args"])),
-                                   self.line + 1)
+                self.eval_func(line)
 
-                    if len(args["args"]) < len_sig - 1 and "*args" in sig:
-                        self.error("TypeError",
-                                   f"Expected: <= " + str(len_sig) + " parameters, got " + str(len(args["args"])),
-                                   self.line + 1)
-
-                    args["args"] = list(map(self.convert, args["args"]))
-                    func(*args["args"])  # Python is so cool
             elif line[0] == "$":
                 outline = re.match("\$([a-zA-Z_]+)\s{1,}([a-zA-Z]+)\[(.*)]\s{1,}=\s{1,}(.*)", line)
                 if not outline:
@@ -247,7 +220,7 @@ class SICL():
                     orig_line = self.line
                     self.vars["__previf__"].define(boolstr)
                     if not boolstr:
-                        while not re.match("\?back \$"+var_name, self.code.splitlines()[self.line]):
+                        while not re.match("\?end \$"+var_name, self.code.splitlines()[self.line]):
                             self.line += 1
                             if self.line > len(self.code.splitlines()):
                                 self.error("EOF", "End of file while scanning for end of conditional", orig_line)
