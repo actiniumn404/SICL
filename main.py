@@ -8,21 +8,32 @@ import re
 
 
 class Variable():
-    def __init__(self, name: str, type: str, flags: list):
+    def __init__(self, name: str, type: str = "", flags: list = []):
         self.type = type
+        self.additional = {}
         self.name = name
-        self.flags = flags
+        self.flags = []
+        self.flags.extend(flags)
         self.data = None
+        self.converter = {
+            "string": str,
+            "integer": int,
+            "dec": float,
+            "bool": bool
+        }
 
-    def define(self, content, line: int = -1):
-        print(self.name, content)
-        if "const" in self.flags:
-            return SICL().error("AssignmentError", "cannot redefine a constant variable", line) and False
-        self.data = content
+    def define(self, content, line: int = -1, code=""):
+        if "const" in self.flags and self.data != None:
+            return SICL().error("AssignmentError", "cannot redefine a constant variable", line, code=code) and False
+        if self.type not in self.converter:
+            return SICL().error("MemoryError", "Invalid data type", line, code=code) and False
+        self.data = self.converter[self.type](SICL().convert(content))
+    def add_data(self, name, content):
+        self.additional[name] = content
 
 
 class SICL():
-    def __init__(self, code = None) -> None:
+    def __init__(self, code = "\n") -> None:
         self.code = code
         self.vars = {}
         self.line = 1
@@ -30,7 +41,7 @@ class SICL():
         self.functions = {
             "program": {}
         }
-        if code:
+        if code != "\n":
             self.preprocess()
             self.main()
 
@@ -53,8 +64,15 @@ class SICL():
             output = output.replace(before, replacement[before])
         self.code = output
 
-    def error(self, name: str, message: str, line_num: int, action="compiling this program"):
-        cprint(colored(f'An exception occured while {action}\n  Line {line_num}\n{name}: {message}'), "red")
+    def error(self, name: str, message: str, line_num: int, action="compiling this program", code=""):
+        try:
+            if not code:
+                code = self.code
+            line = code.splitlines()[line_num - 1]
+        except IndexError:
+            line = "[ERROR]"
+
+        cprint(colored(f'An exception occured while {action}\n  Line {line_num}\n    {line}\n{name}: {message}'), "red")
         exit(1)
 
     def get_args(self, line):
@@ -95,7 +113,7 @@ class SICL():
         return result
 
     def convert(self, arg):
-        arg = arg[1:-1]
+        arg = arg.strip("()")
         if all([x in list("0123456789") for x in arg]):
             return int(arg)
         if all([x in list("0123456789.") for x in arg]):
@@ -103,25 +121,26 @@ class SICL():
         if arg[0] == "$": # variable
             if arg[1:] not in self.vars:
                 self.error("NameError", f'There is no variable named "{arg[1:]}"', self.line)
-            return self.vars[arg[1:]].content
+            return self.vars[arg[1:]].data
         if arg[0] == '"' and arg[-1] == '"':
             return arg[1:-1]
 
     def main(self):
-        for index, line in enumerate(self.code.splitlines()):
+        while self.line < len(self.code.splitlines()):
+            line = self.code.splitlines()[self.line]
             if not line:
                 pass
-            elif line[0] == "+":
+            elif line[0] in ["+", "#"]:
                 pass
             elif line[0] == "!":
                 try:
                     args = self.get_args(line)
                 except IndexError:
-                    self.error("EOL", f"End of line (EOL) when scanning function call", index + 1)
+                    self.error("EOL", f"End of line (EOL) when scanning function call", self.line + 1)
                 if args["syntax"] not in self.functions:
-                    self.error("NameError", f"No module "+args["syntax"]+" was found.", index+1)
+                    self.error("NameError", f"No module "+args["syntax"]+" was found.", self.line+1)
                 elif args["name"] not in self.functions[args["syntax"]]:
-                    self.error("NameError", f"No function called "+args["syntax"]+"."+args["name"]+" was found.", index+1)
+                    self.error("NameError", f"No function called "+args["syntax"]+"."+args["name"]+" was found.", self.line+1)
                 else:
                     func = self.functions[args["syntax"]][args["name"]]
                     sig = [str(x) for x in list(dict(signature(func).parameters).values())]
@@ -129,12 +148,12 @@ class SICL():
                     if len(args["args"]) != len_sig and "*args" not in sig:
                         self.error("TypeError",
                                    f"Expected: "+str(len_sig)+" parameters, got "+str(len(args["args"])),
-                                   index + 1)
+                                   self.line + 1)
 
                     if len(args["args"]) < len_sig - 1 and "*args" in sig:
                         self.error("TypeError",
                                    f"Expected: <= "+str(len_sig)+" parameters, got "+str(len(args["args"])),
-                                   index + 1)
+                                   self.line + 1)
 
                     args["args"] = list(map(self.convert, args["args"]))
                     func(*args["args"]) # Python is so cool
@@ -146,10 +165,36 @@ class SICL():
                     # Outline: variable_name, data_type, additional_info, content
                     outline = outline.groups()
                     if outline[0] not in self.vars:
-                        self.vars[outline[0]] = Variable(outline[0], outline[1], outline[2].split("/"))
-                    self.vars[outline[0]].define(outline[3], self.line + 1)
+                        self.vars[outline[0]] = Variable(outline[0])
+                    self.vars[outline[0]].type = outline[1]
+                    self.vars[outline[0]].define(outline[3], self.line + 1, self.code)
+                    self.vars[outline[0]].flags.extend( outline[2].split("/"))
 
-
+            elif line[0] == "@":
+                if line[1] == "n":
+                    outline = re.match("@n\s{1,}\$([a-zA-Z_]+)\s{1,}([0-9]+)\s{1,}([0-9]+)", line)
+                    if not outline:
+                        self.error("SyntaxError", "Syntax used here does not adhere to the number loop syntax", self.line + 1)
+                    else:
+                        var_name, lower, higher = outline.groups()
+                        if not self.vars.get(var_name):
+                            self.vars[var_name] = Variable(var_name, "integer", ["loop"])
+                        self.vars[var_name].define(lower, self.line + 1, self.code)
+                        self.vars[var_name].add_data("upper", int(higher))
+                        self.vars[var_name].add_data("loopback", self.line + 1)
+                elif line[1] == "b": # loopBack
+                    outline = re.match("@b \$([a-zA-Z_]+)", line)
+                    if not outline:
+                        self.error("SyntaxError", "Syntax used here does not adhere to the loopback syntax", self.line + 1)
+                    else:
+                        var_name = outline.groups()[0]
+                        if not self.vars.get(var_name):
+                            self.error("NameError", f"Variable \"${var_name}\" does not exist", self.line + 1)
+                        elif "loop" not in self.vars.get(var_name).flags:
+                            self.error("TypeError", f"Variable \"{var_name}\" is not a loop variable", self.line + 1)
+                        elif self.vars[var_name].data < self.vars[var_name].additional["upper"]:
+                            self.vars[var_name].data += 1
+                            self.line = self.vars[var_name].additional["loopback"] - 1
             self.line += 1
 
 

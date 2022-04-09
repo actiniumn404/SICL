@@ -1,4 +1,11 @@
 +include std
-$andrew string[] = "asdf"
-$andrew string[const] = "cool"
-!std print: (3), (2),
+$andrew string[const] = "andrew"
+!std print: ($andrew),
+@n $number_loop_var 1 10
+    @n $nested 1 3
+        !std print: ("Nested!:"), ($nested),
+    @b $nested
+    !std print: ("The variable thing:"), ($number_loop_var),
+@b $number_loop_var
+$other_andrew string[] = "bad"
+!std print: ($other_andrew),
