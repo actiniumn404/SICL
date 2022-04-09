@@ -236,6 +236,22 @@ class SICL():
                         elif self.vars[var_name].data < self.vars[var_name].additional["upper"]:
                             self.vars[var_name].data += 1
                             self.line = self.vars[var_name].additional["loopback"] - 1
+            elif line[0] == "?":
+                if line[1] == "i":
+                    outline = re.match("\?if \$([a-zA-Z_]+) \| (.*)", line)
+                    if not outline:
+                        self.error("SyntaxError", "Syntax used here does not adhere to the conditional syntax",
+                                   self.line + 1)
+                    var_name, boolstr = outline.groups()
+                    boolstr = self.bool(boolstr)
+                    orig_line = self.line
+                    self.vars["__previf__"].define(boolstr)
+                    if not boolstr:
+                        while not re.match("\?back \$"+var_name, self.code.splitlines()[self.line]):
+                            self.line += 1
+                            if self.line > len(self.code.splitlines()):
+                                self.error("EOF", "End of file while scanning for end of conditional", orig_line)
+
             self.line += 1
 
 
