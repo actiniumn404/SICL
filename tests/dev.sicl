@@ -1,10 +1,22 @@
 +include std
 
+$counter integer[] = 0
 ?if $firstcond | "cool"
     !std print: ("IN the if!"), ("cool!"), ("noice"),
 ?end $firstcond
 ?if $secondcond | $__previf__ = False
     !std print: ("IN the ELSE one!"),
 ?end $secondcond
+
+
+@n $numberloop 0 10
+    !std print: ("In the number loop is the number"), ($numberloop),
+@b $numberloop
+
+$count integer[] = 0
+@c $ifloop "$count < 10"
+    !std print: ("In the if loop is the number"), ($count),
+    $count integer[] = !std math: ($count), ("+"), (1),
+@b $ifloop
 
 !std print: ("OUT OF the if!"),

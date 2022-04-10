@@ -22,13 +22,6 @@ class Variable():
             "bool": bool
         }
 
-    def define(self, content, line: int = -1, code=""):
-        if "const" in self.flags and self.data != None:
-            return SICL().error("AssignmentError", "cannot redefine a constant variable", line, code=code) and False
-        if self.type not in self.converter:
-            return SICL().error("MemoryError", "Invalid data type", line, code=code) and False
-        self.data = self.converter[self.type](SICL().convert(content))
-
     def add_data(self, name, content):
         self.additional[name] = content
 
@@ -44,9 +37,17 @@ class SICL():
         }
         if code != "\n":
             self.vars["__previf__"] = Variable("__previf__", "bool", ["sysdef"])
-            self.vars["__previf__"].define(True)
+            self.define("__previf__", True)
             self.preprocess()
             self.main()
+
+    def define(self, name, content):
+        var = self.vars[name]
+        if "const" in var.flags and var.data != None:
+            return self.error("AssignmentError", "cannot redefine a constant variable", self.line + 1) and False
+        if var.type not in var.converter:
+            return self.error("MemoryError", "Invalid data type", self.line+1) and False
+        var.data = var.converter[var.type](self.convert(content))
 
     def preprocess(self):
         output = ""
@@ -104,7 +105,6 @@ class SICL():
                 queue.insert(0, op1 > op2)
             else:
                 self.error("SyntaxError", "Invalid logical operator \""+op+"\"", self.line)
-            #print(boolstr, queue, op1, op2)
         return bool(self.convert(queue[0]))
 
     def eval_func(self, line):
@@ -113,7 +113,6 @@ class SICL():
             self.error("EOL", f"End of line (EOL) when scanning function call", self.line + 1)
         library, name, args = outline.groups()
         args = args.split(", ")
-
         if library not in self.functions:
             self.error("NameError", f"No module " + library + " was found.", self.line + 1)
         elif name not in self.functions[library]:
@@ -139,6 +138,8 @@ class SICL():
 
 
     def convert(self, arg):
+        if str(arg)[0] == "!":
+            return self.eval_func(arg)
         arg = str(arg).strip("(),")
         if arg == "True":
             return True
@@ -150,12 +151,11 @@ class SICL():
             return float(arg)
         if arg[0] == "$":  # variable
             if arg[1:] not in self.vars:
-                self.error("NameError", f'There is no variable named "{arg[1:]}"', self.line)
+                self.error("NameError", f'There is no variable named "{arg[1:]}"', self.line+1)
             return self.vars[arg[1:]].data
         if arg[0] == '"' and arg[-1] == '"':
             return arg[1:-1]
-        if arg[0] == "!":
-            return self.eval_func(arg)
+
         return arg
 
     def main(self):
@@ -179,7 +179,7 @@ class SICL():
                     if outline[0] not in self.vars:
                         self.vars[outline[0]] = Variable(outline[0])
                     self.vars[outline[0]].type = outline[1]
-                    self.vars[outline[0]].define(outline[3], self.line + 1, self.code)
+                    self.define(outline[0], outline[3])
                     self.vars[outline[0]].flags.extend(outline[2].split("/"))
 
             elif line[0] == "@":
@@ -191,10 +191,23 @@ class SICL():
                     else:
                         var_name, lower, higher = outline.groups()
                         if not self.vars.get(var_name):
-                            self.vars[var_name] = Variable(var_name, "integer", ["loop"])
-                        self.vars[var_name].define(lower, self.line + 1, self.code)
+                            self.vars[var_name] = Variable(var_name, "integer", ["loopn"])
+                        self.define(var_name, lower)
                         self.vars[var_name].add_data("upper", int(higher))
                         self.vars[var_name].add_data("loopback", self.line + 1)
+                elif line[1] == "c":
+                    outline = re.match("@c\s{1,}\$([a-zA-Z_]+)\s{1,}(.*)", line)
+                    if not outline:
+                        self.error("SyntaxError", "Syntax used here does not adhere to the conditional loop syntax",
+                                   self.line + 1)
+                    else:
+                        var_name, cond = outline.groups()
+                        if not self.vars.get(var_name):
+                            self.vars[var_name] = Variable(var_name, "string", ["loopc"])
+                        self.define(var_name, cond)
+                        self.vars[var_name].add_data("loopback", self.line + 1)
+
+
                 elif line[1] == "b":  # loopBack
                     outline = re.match("@b \$([a-zA-Z_]+)", line)
                     if not outline:
@@ -204,11 +217,15 @@ class SICL():
                         var_name = outline.groups()[0]
                         if not self.vars.get(var_name):
                             self.error("NameError", f"Variable \"${var_name}\" does not exist", self.line + 1)
-                        elif "loop" not in self.vars.get(var_name).flags:
+                        elif "loopc" not in self.vars.get(var_name).flags and "loopn" not in self.vars.get(var_name).flags:
                             self.error("TypeError", f"Variable \"{var_name}\" is not a loop variable", self.line + 1)
-                        elif self.vars[var_name].data < self.vars[var_name].additional["upper"]:
+                        if "loopn" in self.vars.get(var_name).flags and self.vars[var_name].data < \
+                                self.vars[var_name].additional["upper"]:
                             self.vars[var_name].data += 1
                             self.line = self.vars[var_name].additional["loopback"] - 1
+                        elif "loopc" in self.vars.get(var_name).flags and self.bool(self.vars.get(var_name).data):
+                            self.line = self.vars[var_name].additional["loopback"] - 1
+
             elif line[0] == "?":
                 if line[1] == "i":
                     outline = re.match("\?if \$([a-zA-Z_]+) \| (.*)", line)
@@ -218,7 +235,7 @@ class SICL():
                     var_name, boolstr = outline.groups()
                     boolstr = self.bool(boolstr)
                     orig_line = self.line
-                    self.vars["__previf__"].define(boolstr)
+                    self.define("__previf__", boolstr)
                     if not boolstr:
                         while not re.match("\?end \$"+var_name, self.code.splitlines()[self.line]):
                             self.line += 1
@@ -226,7 +243,6 @@ class SICL():
                                 self.error("EOF", "End of file while scanning for end of conditional", orig_line)
 
             self.line += 1
-
 
 if __name__ == "__main__":
     sys.path.extend([str(pathlib.Path().resolve()) + "/modules"])
