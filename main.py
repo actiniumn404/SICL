@@ -15,12 +15,7 @@ class Variable():
         self.flags = []
         self.flags.extend(flags)
         self.data = None
-        self.converter = {
-            "string": str,
-            "integer": int,
-            "dec": float,
-            "bool": bool
-        }
+
 
     def add_data(self, name, content):
         self.additional[name] = content
@@ -42,12 +37,18 @@ class SICL():
             self.main()
 
     def define(self, name, content):
+        converter = {
+            "string": str,
+            "integer": int,
+            "dec": float,
+            "bool": lambda x: self.bool(str(x))
+        }
         var = self.vars[name]
         if "const" in var.flags and var.data != None:
             return self.error("AssignmentError", "cannot redefine a constant variable", self.line + 1) and False
-        if var.type not in var.converter:
+        if var.type not in converter:
             return self.error("MemoryError", "Invalid data type", self.line+1) and False
-        var.data = var.converter[var.type](self.convert(content))
+        var.data = converter[var.type](self.convert(content))
 
     def preprocess(self):
         output = ""
@@ -145,6 +146,8 @@ class SICL():
             return True
         if arg == "False":
             return False
+        if arg[:1] == "b!":
+            return self.bool(arg[2:])
         if all([x in list("0123456789") for x in arg]):
             return int(arg)
         if all([x in list("0123456789.") for x in arg]):

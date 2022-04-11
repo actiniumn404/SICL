@@ -1,0 +1,15 @@
++include std
+
+$count integer[] = 0
+
+@n $num 1 1000
+    $three bool[] = "!std math: ($num), ("%"), (3), = 0"
+    $five bool[] = "!std math: ($num), ("%"), (5), = 0"
+
+    ?if $check | $three + $five
+        $count integer[] = !std math: ($count), ("+"), ($num),
+        #!std print: ($three), ($five),
+    ?end $check
+@b $num
+
+!std print: ($count),
